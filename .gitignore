@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+
+# Environment secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Testing
+.pytest_cache/
+.coverage
+
+# VS Code
+.vscode/
+
+# Cloned repos (temp workspace)
+workspace/
+
+# OS files
+.DS_Store
+Thumbs.db
