@@ -1,5 +1,11 @@
 # main.py
-# Entry point for the Code Review MCP Server
-# We'll add FastAPI startup code here in Phase 2
+from core.config import settings
 
-print("Code Review MCP Server - starting up...")
+def main():
+    print("Code Review MCP Server")
+    print(f"Running on {settings.host}:{settings.port}")
+    print(f"Debug mode: {settings.debug}")
+    print("Config loaded successfully ✓")
+
+if __name__ == "__main__":
+    main()
