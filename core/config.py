@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # GitHub
     github_token: str = Field(..., description="GitHub personal access token")
 
+    # GitHub Webhook Secrete
+    github_webhook_secret: str = Field(..., description="Secret for verifying GitHub webhooks")
+
     # Email / SMTP
     smtp_email: str = Field(..., description="Gmail address for notifications")
     smtp_password: str = Field(..., description="Gmail app password")
