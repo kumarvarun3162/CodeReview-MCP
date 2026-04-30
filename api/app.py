@@ -11,6 +11,11 @@ from api.webhook_parser import parse_push_event, parse_pull_request_event
 from core.config import settings
 
 
+from pathlib import Path
+from core.workspace import workspace_manager
+from agents.code_fetcher import CodeFetcherAgent
+from utils.diff_summary import build_diff_summary
+
 app = FastAPI(
     title="Code Review MCP Server",
     description="Automated multi-agent code review for any GitHub repository",
@@ -27,24 +32,43 @@ app = FastAPI(
 
 async def run_analysis_job(job: AnalysisJob):
     """
-    This is where the LangGraph orchestrator will be called (Phase 3+).
-    For now it just prints the job so we can verify the pipeline works.
+    Main pipeline runner. Phases 4 and 5 will add more steps below.
     """
-    print(f"\n{'='*60}")
-    print(f"[JOB RECEIVED]")
-    print(f"  Repo:    {job.repo_full_name}")
-    print(f"  URL:     {job.repo_url}")
-    print(f"  Branch:  {job.branch}")
-    print(f"  Commit:  {job.commit_sha}")
-    print(f"  PR #:    {job.pr_number}")
-    print(f"  Source:  {job.triggered_by}")
-    print(f"  Email:   {job.author_email}")
-    print(f"{'='*60}\n")
-    # Phase 3: CodeFetcherAgent will be called here
-    # Phase 4: VulnScannerAgent + CodeReviewerAgent will be called here
-    # Phase 5: AutoFixAgent + PRCreatorAgent + EmailNotifierAgent will be called here
+    print(f"\n[Pipeline] Starting job: {job.repo_full_name} ({job.triggered_by})")
 
+    code_fetcher = CodeFetcherAgent()
 
+    # Workspace is created and automatically cleaned up after analysis
+    async with workspace_manager.job_workspace(job.repo_full_name, job.branch) as workspace:
+        try:
+            # Phase 3: Fetch the code
+            fetched_code = await code_fetcher.fetch(job, workspace)
+
+            # Print a human-readable summary of what was fetched
+            summary = build_diff_summary(fetched_code)
+            print(summary)
+
+            print(f"[Pipeline] Code fetched successfully.")
+            print(f"[Pipeline] {len(fetched_code.files)} files ready for scanning.")
+
+            # ── Phase 4 will go here ──────────────────────────────────
+            # scan_results = await vuln_scanner.scan(fetched_code)
+            # review = await code_reviewer.review(fetched_code)
+            # ─────────────────────────────────────────────────────────
+
+            # ── Phase 5 will go here ──────────────────────────────────
+            # fixed_code = await auto_fix_agent.fix(fetched_code, scan_results)
+            # pr = await pr_creator.create_pr(fixed_code, job)
+            # await email_notifier.send_approval(pr, job)
+            # ─────────────────────────────────────────────────────────
+
+        except ValueError as e:
+            # Known errors (bad URL, private repo, bad branch)
+            print(f"[Pipeline] Error: {e}")
+        except Exception as e:
+            # Unexpected errors — log but don't crash the server
+            print(f"[Pipeline] Unexpected error for {job.repo_full_name}: {e}")
+            raise
 # ---------------------------------------------------------------------------
 # Route 1: GitHub webhook (automatic trigger)
 # ---------------------------------------------------------------------------
