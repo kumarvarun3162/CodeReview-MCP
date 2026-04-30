@@ -1,10 +1,34 @@
 # core/workspace.py
 import os
+import stat
 import shutil
-import tempfile
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
+
+
+def _force_remove_readonly(func, path, exc_info):
+    """
+    Error handler for shutil.rmtree on Windows.
+
+    WHY THIS EXISTS:
+    Git marks files inside .git/objects/ as read-only on Windows
+    to protect repository integrity. shutil.rmtree respects those
+    permissions and raises PermissionError instead of deleting.
+
+    This handler:
+    1. Catches the PermissionError
+    2. Removes the read-only flag from the problematic file
+    3. Retries the delete operation
+
+    It's passed as the onexc= argument to shutil.rmtree.
+    """
+    try:
+        # Remove read-only flag: stat.S_IWRITE = permission to write/delete
+        os.chmod(path, stat.S_IWRITE)
+        func(path)  # retry the failed operation (usually os.unlink or os.rmdir)
+    except Exception as e:
+        print(f"[Workspace] Warning: could not force-delete {path}: {e}")
 
 
 class WorkspaceManager:
@@ -40,10 +64,26 @@ class WorkspaceManager:
         return workspace_path
 
     def cleanup(self, workspace_path: Path):
-        """Deletes the workspace folder and everything inside it."""
+        """
+        Deletes the workspace folder and everything inside it.
+        Uses _force_remove_readonly to handle Windows Git read-only files.
+        """
         if workspace_path.exists():
-            shutil.rmtree(workspace_path)
-            print(f"[Workspace] Cleaned up: {workspace_path}")
+            try:
+                shutil.rmtree(
+                    workspace_path,
+                    onexc=_force_remove_readonly   # Python 3.12+
+                )
+                print(f"[Workspace] Cleaned up: {workspace_path}")
+            except TypeError:
+                # Python 3.11 and below use onerror= instead of onexc=
+                shutil.rmtree(
+                    workspace_path,
+                    onerror=_force_remove_readonly
+                )
+                print(f"[Workspace] Cleaned up: {workspace_path}")
+            except Exception as e:
+                print(f"[Workspace] Warning: cleanup incomplete for {workspace_path}: {e}")
 
     @asynccontextmanager
     async def job_workspace(self, repo_full_name: str, branch: str):
@@ -57,7 +97,7 @@ class WorkspaceManager:
         """
         path = self.create_job_workspace(repo_full_name, branch)
         try:
-            yield path          # give the caller the path
+            yield path
         finally:
             self.cleanup(path)  # always runs, even on exception
 
