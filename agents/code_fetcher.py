@@ -1,20 +1,20 @@
-# import os
-# from pathlib import Path
-# from typing import Optional
+import os
+from pathlib import Path
+from typing import Optional
 
-# # ── Windows fix: must happen BEFORE `import git` ──────────────────────────
-# # GitPython crashes at import time if it can't find git.exe in PATH.
-# # Setting this env var tells it exactly where to look.
-# if os.name == "nt":
-#     _git_candidates = [
-#         r"C:\Program Files\Git\bin\git.exe",
-#         r"C:\Program Files (x86)\Git\bin\git.exe",
-#     ]
-#     for _candidate in _git_candidates:
-#         if os.path.exists(_candidate):
-#             os.environ["GIT_PYTHON_GIT_EXECUTABLE"] = _candidate
-#             break
-# # ──────────────────────────────────────────────────────────────────────────
+# ── Windows fix: must happen BEFORE `import git` ──────────────────────────
+# GitPython crashes at import time if it can't find git.exe in PATH.
+# Setting this env var tells it exactly where to look.
+if os.name == "nt":
+    _git_candidates = [
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files (x86)\Git\bin\git.exe",
+    ]
+    for _candidate in _git_candidates:
+        if os.path.exists(_candidate):
+            os.environ["GIT_PYTHON_GIT_EXECUTABLE"] = _candidate
+            break
+# ──────────────────────────────────────────────────────────────────────────
 
 from pathlib import Path
 from typing import Optional
