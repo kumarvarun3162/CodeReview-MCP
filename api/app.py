@@ -30,44 +30,41 @@ app = FastAPI(
 # longer than 10 seconds, GitHub marks the delivery as failed.
 # ---------------------------------------------------------------------------
 
+# api/app.py — replace run_analysis_job with this full version
+
+from agents.vuln_scanner import VulnScannerAgent
+
 async def run_analysis_job(job: AnalysisJob):
-    """
-    Main pipeline runner. Phases 4 and 5 will add more steps below.
-    """
-    print(f"\n[Pipeline] Starting job: {job.repo_full_name} ({job.triggered_by})")
+    print(f"\n[Pipeline] ▶ Starting: {job.repo_full_name} ({job.triggered_by})")
 
-    code_fetcher = CodeFetcherAgent()
+    code_fetcher  = CodeFetcherAgent()
+    vuln_scanner  = VulnScannerAgent()
 
-    # Workspace is created and automatically cleaned up after analysis
     async with workspace_manager.job_workspace(job.repo_full_name, job.branch) as workspace:
         try:
-            # Phase 3: Fetch the code
+            # ── Phase 3: Fetch ────────────────────────────────────────────
             fetched_code = await code_fetcher.fetch(job, workspace)
+            print(build_diff_summary(fetched_code))
 
-            # Print a human-readable summary of what was fetched
-            summary = build_diff_summary(fetched_code)
-            print(summary)
+            if not fetched_code.files:
+                print("[Pipeline] No analyzable files found. Skipping scan.")
+                return
 
-            print(f"[Pipeline] Code fetched successfully.")
-            print(f"[Pipeline] {len(fetched_code.files)} files ready for scanning.")
+            # ── Phase 4: Scan + Review ────────────────────────────────────
+            report = await vuln_scanner.scan(fetched_code)
 
-            # ── Phase 4 will go here ──────────────────────────────────
-            # scan_results = await vuln_scanner.scan(fetched_code)
-            # review = await code_reviewer.review(fetched_code)
-            # ─────────────────────────────────────────────────────────
+            print(f"[Pipeline] ✓ Phase 4 complete. {report.total_findings} total findings.")
 
-            # ── Phase 5 will go here ──────────────────────────────────
-            # fixed_code = await auto_fix_agent.fix(fetched_code, scan_results)
-            # pr = await pr_creator.create_pr(fixed_code, job)
+            # ── Phase 5 will go here ──────────────────────────────────────
+            # fixed_code = await auto_fix_agent.fix(fetched_code, report)
+            # pr = await pr_creator.create_pr(fixed_code, report, job)
             # await email_notifier.send_approval(pr, job)
-            # ─────────────────────────────────────────────────────────
+            # ─────────────────────────────────────────────────────────────
 
         except ValueError as e:
-            # Known errors (bad URL, private repo, bad branch)
-            print(f"[Pipeline] Error: {e}")
+            print(f"[Pipeline] ✗ Error: {e}")
         except Exception as e:
-            # Unexpected errors — log but don't crash the server
-            print(f"[Pipeline] Unexpected error for {job.repo_full_name}: {e}")
+            print(f"[Pipeline] ✗ Unexpected error: {e}")
             raise
 # ---------------------------------------------------------------------------
 # Route 1: GitHub webhook (automatic trigger)
