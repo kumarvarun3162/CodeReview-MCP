@@ -16,6 +16,9 @@ from core.workspace import workspace_manager
 from agents.code_fetcher import CodeFetcherAgent
 from utils.diff_summary import build_diff_summary
 
+from core.repo_registry import repo_registry, RegisteredRepo
+from pydantic import BaseModel
+
 app = FastAPI(
     title="Code Review MCP Server",
     description="Automated multi-agent code review for any GitHub repository",
@@ -177,7 +180,70 @@ async def analyze_repo(
         "branch": request_body.branch,
         "message": f"Analysis started. Results will be sent to {request_body.notify_email or 'no email provided'}",
     })
+# ── Repo Registry routes ───────────────────────────────────────────────────
 
+class AddRepoRequest(BaseModel):
+    repo_url: str          # "https://github.com/owner/repo" OR "owner/repo"
+    notify_email: str      # where to send approval emails
+    branch: str = "main"
+
+class RemoveRepoRequest(BaseModel):
+    repo_full_name: str    # "owner/repo"
+
+
+@app.post("/repos/add")
+async def add_repo(body: AddRepoRequest):
+    """
+    Register a repo for automatic webhook monitoring.
+    After adding, install the webhook on that GitHub repo pointing to /webhook.
+
+    Example:
+        POST /repos/add
+        {"repo_url": "owner/their-repo", "notify_email": "you@gmail.com"}
+    """
+    repo = repo_registry.add_repo(
+        repo_full_name=body.repo_url,
+        notify_email=body.notify_email,
+        branch=body.branch,
+    )
+    return {
+        "status": "added",
+        "repo": repo.repo_full_name,
+        "notify_email": repo.notify_email,
+        "branch": repo.branch,
+        "message": (
+            f"Now install the webhook on https://github.com/{repo.repo_full_name}/settings/hooks "
+            f"pointing to your /webhook endpoint."
+        )
+    }
+
+
+@app.delete("/repos/remove")
+async def remove_repo(body: RemoveRepoRequest):
+    """Remove a repo from monitoring"""
+    removed = repo_registry.remove_repo(body.repo_full_name)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Repo '{body.repo_full_name}' not found in registry")
+    return {"status": "removed", "repo": body.repo_full_name}
+
+
+@app.get("/repos/list")
+async def list_repos():
+    """List all registered repos"""
+    repos = repo_registry.list_repos()
+    return {
+        "total": len(repos),
+        "repos": [r.model_dump() for r in repos]
+    }
+
+
+@app.patch("/repos/toggle")
+async def toggle_repo(repo_full_name: str, enabled: bool):
+    """Pause or resume a repo without removing it"""
+    ok = repo_registry.set_enabled(repo_full_name, enabled)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Repo not found")
+    return {"status": "updated", "repo": repo_full_name, "enabled": enabled}
 
 # ---------------------------------------------------------------------------
 # Route 3: Health check
