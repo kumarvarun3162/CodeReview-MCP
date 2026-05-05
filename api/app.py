@@ -1,6 +1,7 @@
 # api/app.py
 import json
 import asyncio
+from xml.dom.domreg import registered
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Header
 from fastapi.responses import JSONResponse
 from typing import Optional
@@ -112,17 +113,28 @@ async def github_webhook(
         # We don't handle this event type — that's fine, just ignore it
         return JSONResponse({"status": "ignored", "event": x_github_event})
 
+    # Inside the /webhook route, after job is parsed, add this block:
+
     if job is None:
         return JSONResponse({"status": "skipped", "reason": "Event not actionable"})
 
-    # Step 3: Queue analysis as background task
-    background_tasks.add_task(run_analysis_job, job)
-
-    return JSONResponse({
-        "status": "queued",
-        "repo": job.repo_full_name,
-        "branch": job.branch,
+# ── Registry check ────────────────────────────────────────────────────────
+# Only process webhooks from repos that are registered.
+# This prevents random repos from triggering your pipeline
+# if they somehow get your webhook URL.
+    if not repo_registry.is_registered(job.repo_full_name):
+        print(f"[Webhook] Ignored unregistered repo: {job.repo_full_name}")
+        return JSONResponse({
+            "status": "ignored",
+            "reason": f"Repo '{job.repo_full_name}' is not registered. "
+                      f"Call POST /repos/add to register it."
     })
+
+# Get registered email for this repo (override whatever GitHub sent)
+    registered = repo_registry.get_repo(job.repo_full_name)
+    if registered: 
+        job.author_email = registered.notify_email
+# ─────────────────────────────────────────────────────────────────────────
 
 
 # ---------------------------------------------------------------------------
