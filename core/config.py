@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     port: int = Field(default=8000)
     debug: bool = Field(default=True)
 
+    #Email Server Base URL (for links in emails)
+    smtp_email: str = Field(..., description="Gmail address for notifications")
+    smtp_password: str = Field(..., description="Gmail app password")
+    server_base_url: str = Field(..., description="Public URL of this server (for approval links)")
+
     class Config:
         env_file = ".env"          # Load from .env automatically
         env_file_encoding = "utf-8"
