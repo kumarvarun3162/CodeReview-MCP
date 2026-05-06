@@ -20,6 +20,12 @@ from utils.diff_summary import build_diff_summary
 from core.repo_registry import repo_registry, RegisteredRepo
 from pydantic import BaseModel
 
+
+from itsdangerous import SignatureExpired, BadSignature
+from github import Github, GithubException
+from agents.email_notifier import EmailNotifierAgent
+from fastapi.responses import HTMLResponse
+
 app = FastAPI(
     title="Code Review MCP Server",
     description="Automated multi-agent code review for any GitHub repository",
@@ -256,6 +262,127 @@ async def toggle_repo(repo_full_name: str, enabled: bool):
     if not ok:
         raise HTTPException(status_code=404, detail="Repo not found")
     return {"status": "updated", "repo": repo_full_name, "enabled": enabled}
+
+
+
+
+# ---------------------------------------------------------------------------
+# Helper: Email token generation and verification
+# ---------------------------------------------------------------------------
+_email_notifier = EmailNotifierAgent()
+
+
+@app.get("/callback/{action}/{token}", response_class=HTMLResponse)
+async def approval_callback(action: str, token: str):
+    """
+    Called when the developer clicks Approve or Reject in their email.
+
+    action: "approve" or "reject"
+    token: signed payload containing repo, pr_number, branch
+
+    Returns an HTML page so the developer sees a friendly confirmation,
+    not raw JSON, when they click the email button in their browser.
+    """
+    if action not in ("approve", "reject"):
+        return _html_result("❌ Invalid Action", "Unknown action. Nothing was done.", "#dc2626")
+
+    # Verify the token
+    try:
+        payload = _email_notifier.verify_token(token, action)
+    except SignatureExpired:
+        return _html_result(
+            "⏰ Link Expired",
+            "This approval link has expired (48h limit). "
+            "Please merge or close the PR manually on GitHub.",
+            "#f59e0b"
+        )
+    except BadSignature:
+        return _html_result(
+            "❌ Invalid Link",
+            "This link is invalid or has been tampered with. "
+            "Nothing was done.",
+            "#dc2626"
+        )
+
+    repo_name   = payload["repo"]
+    pr_number   = payload["pr_number"]
+    branch_name = payload["branch"]
+
+    try:
+        github = Github(settings.github_token)
+        repo = github.get_repo(repo_name)
+        pr   = repo.get_pull(pr_number)
+
+        if action == "approve":
+            # Merge the PR
+            pr.merge(
+                merge_method="squash",
+                commit_title=f"Auto-merge: {pr.title}",
+                commit_message="Merged via Code Review MCP Server approval.",
+            )
+            # Delete the review branch after merging
+            try:
+                ref = repo.get_git_ref(f"heads/{branch_name}")
+                ref.delete()
+            except GithubException:
+                pass  # branch already deleted or doesn't exist
+
+            return _html_result(
+                "✅ PR Approved & Merged",
+                f"Pull Request #{pr_number} on {repo_name} has been merged successfully. "
+                f"The review branch has been deleted.",
+                "#16a34a"
+            )
+
+        else:  # reject
+            pr.edit(state="closed")
+            # Delete the review branch
+            try:
+                ref = repo.get_git_ref(f"heads/{branch_name}")
+                ref.delete()
+            except GithubException:
+                pass
+
+            return _html_result(
+                "❌ PR Rejected & Closed",
+                f"Pull Request #{pr_number} on {repo_name} has been closed. "
+                f"No changes were merged.",
+                "#dc2626"
+            )
+
+    except GithubException as e:
+        return _html_result(
+            "⚠️ GitHub Error",
+            f"Could not complete the action: {str(e)}",
+            "#f59e0b"
+        )
+
+
+def _html_result(title: str, message: str, color: str) -> str:
+    """Returns a clean HTML response page for email callback actions"""
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+             background:#f8fafc;display:flex;align-items:center;justify-content:center;
+             min-height:100vh;margin:0;">
+  <div style="background:white;border-radius:16px;padding:48px;text-align:center;
+              box-shadow:0 4px 24px rgba(0,0,0,0.08);max-width:480px;">
+    <div style="font-size:56px;margin-bottom:16px;">{title.split()[0]}</div>
+    <h1 style="color:{color};margin:0 0 16px;font-size:24px;">
+      {' '.join(title.split()[1:])}
+    </h1>
+    <p style="color:#64748b;line-height:1.6;margin:0 0 24px;">{message}</p>
+    <a href="https://github.com"
+       style="display:inline-block;background:#1e293b;color:white;padding:12px 24px;
+              border-radius:8px;text-decoration:none;font-weight:600;">
+      Go to GitHub
+    </a>
+  </div>
+</body></html>"""
+
 
 # ---------------------------------------------------------------------------
 # Route 3: Health check
