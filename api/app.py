@@ -26,6 +26,13 @@ from github import Github, GithubException
 from agents.email_notifier import EmailNotifierAgent
 from fastapi.responses import HTMLResponse
 
+
+from agents.auto_fix import AutoFixAgent
+from agents.pr_creator import PRCreatorAgent
+from agents.email_notifier import EmailNotifierAgent
+
+
+
 app = FastAPI(
     title="Code Review MCP Server",
     description="Automated multi-agent code review for any GitHub repository",
@@ -39,42 +46,50 @@ app = FastAPI(
 # HTTP 200 immediately. GitHub expects a fast response — if you take
 # longer than 10 seconds, GitHub marks the delivery as failed.
 # ---------------------------------------------------------------------------
-
-# api/app.py — replace run_analysis_job with this full version
-
 from agents.vuln_scanner import VulnScannerAgent
 
 async def run_analysis_job(job: AnalysisJob):
-    print(f"\n[Pipeline] ▶ Starting: {job.repo_full_name} ({job.triggered_by})")
+    print(f"\n[Pipeline] ▶ {job.repo_full_name} ({job.triggered_by})")
 
-    code_fetcher  = CodeFetcherAgent()
-    vuln_scanner  = VulnScannerAgent()
+    code_fetcher   = CodeFetcherAgent()
+    vuln_scanner   = VulnScannerAgent()
+    auto_fix       = AutoFixAgent()
+    pr_creator     = PRCreatorAgent()
+    email_notifier = EmailNotifierAgent()
 
     async with workspace_manager.job_workspace(job.repo_full_name, job.branch) as workspace:
         try:
-            # ── Phase 3: Fetch ────────────────────────────────────────────
-            fetched_code = await code_fetcher.fetch(job, workspace)
-            print(build_diff_summary(fetched_code))
-
-            if not fetched_code.files:
-                print("[Pipeline] No analyzable files found. Skipping scan.")
+            # Phase 3 — Fetch
+            fetched = await code_fetcher.fetch(job, workspace)
+            print(build_diff_summary(fetched))
+            if not fetched.files:
+                print("[Pipeline] No analyzable files. Done.")
                 return
 
-            # ── Phase 4: Scan + Review ────────────────────────────────────
-            report = await vuln_scanner.scan(fetched_code)
+            # Phase 4 — Scan + Review
+            report = await vuln_scanner.scan(fetched)
+            if not report.has_critical_issues:
+                print("[Pipeline] No critical/high issues found. No PR needed.")
+                return
 
-            print(f"[Pipeline] ✓ Phase 4 complete. {report.total_findings} total findings.")
+            # Phase 5A — Auto-fix
+            fix_result = await auto_fix.fix(fetched, report)
 
-            # ── Phase 5 will go here ──────────────────────────────────────
-            # fixed_code = await auto_fix_agent.fix(fetched_code, report)
-            # pr = await pr_creator.create_pr(fixed_code, report, job)
-            # await email_notifier.send_approval(pr, job)
-            # ─────────────────────────────────────────────────────────────
+            # Phase 5B — Create PR
+            pr = await pr_creator.create_pr(fix_result, report, job)
+            if not pr:
+                print("[Pipeline] PR creation failed. Done.")
+                return
+
+            # Phase 5C — Send approval email
+            await email_notifier.send_approval_email(pr, report, job)
+
+            print(f"[Pipeline] ✅ Complete. PR #{pr.pr_number}: {pr.pr_url}")
 
         except ValueError as e:
-            print(f"[Pipeline] ✗ Error: {e}")
+            print(f"[Pipeline] ✗ {e}")
         except Exception as e:
-            print(f"[Pipeline] ✗ Unexpected error: {e}")
+            print(f"[Pipeline] ✗ Unexpected: {e}")
             raise
 # ---------------------------------------------------------------------------
 # Route 1: GitHub webhook (automatic trigger)
