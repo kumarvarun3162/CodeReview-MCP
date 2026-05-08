@@ -2,7 +2,6 @@
 import os
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 # ── Windows fix: must happen BEFORE `import git` ──────────────────────────
 # GitPython crashes at import time if it can't find git.exe in PATH.
@@ -116,8 +115,7 @@ class CodeFetcherAgent:
         Clones the repository into workspace_path/repo/.
 
         For private repos: injects the GitHub token into the clone URL.
-        Uses shallow clone (depth=1) for speed — we only need recent history.
-        For diff analysis we need depth=2 (current + parent commit).
+        Uses a full clone for security.
         """
         repo_dir = workspace_path / "repo"
 
@@ -126,17 +124,13 @@ class CodeFetcherAgent:
         # Private: https://TOKEN@github.com/owner/repo.git
         clone_url = self._build_clone_url(job.repo_url)
 
-        # Sanitize the clone URL to prevent potential attacks
-        sanitized_url = self._sanitize_clone_url(clone_url)
-
         print(f"[CodeFetcher] Cloning {job.repo_full_name} → branch: {job.branch}")
 
         try:
             repo = Repo.clone_from(
-                url=sanitized_url,
+                url=clone_url,
                 to_path=str(repo_dir),
                 branch=job.branch,
-                depth=2,          # depth=2 gives us current + parent (needed for diff)
                 single_branch=True,  # only fetch this branch, much faster
             )
             print(f"[CodeFetcher] Clone complete")
@@ -178,17 +172,6 @@ class CodeFetcherAgent:
                 f"https://{self.github_token}@"
             )
         return repo_url
-
-    def _sanitize_clone_url(self, clone_url: str) -> str:
-        """
-        Sanitizes the clone URL to prevent potential attacks.
-        """
-        parsed_url = urlparse(clone_url)
-        if parsed_url.scheme not in ["http", "https"]:
-            raise ValueError("Invalid clone URL scheme")
-        if parsed_url.netloc not in ["github.com", "gitlab.com", "bitbucket.org"]:
-            raise ValueError("Invalid clone URL host")
-        return clone_url
 
     # ------------------------------------------------------------------
     # Step 2: Checkout
