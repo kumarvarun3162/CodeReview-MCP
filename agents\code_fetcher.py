@@ -115,7 +115,8 @@ class CodeFetcherAgent:
         Clones the repository into workspace_path/repo/.
 
         For private repos: injects the GitHub token into the clone URL.
-        Uses a full clone for security.
+        Uses shallow clone (depth=5) for speed — we only need recent history.
+        For diff analysis we need depth=5 (current + parent commit).
         """
         repo_dir = workspace_path / "repo"
 
@@ -131,6 +132,7 @@ class CodeFetcherAgent:
                 url=clone_url,
                 to_path=str(repo_dir),
                 branch=job.branch,
+                depth=5,          # depth=5 gives us current + parent (needed for diff)
                 single_branch=True,  # only fetch this branch, much faster
             )
             print(f"[CodeFetcher] Clone complete")
