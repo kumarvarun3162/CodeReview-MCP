@@ -2,7 +2,8 @@
 import base64
 from dataclasses import dataclass
 from typing import Optional
-from github import Github, GithubException, Repository
+from github import Github, GithubException
+from github.Repository import Repository
 from agents.auto_fix import FixResult, FixedFile
 from agents.code_reviewer import ReviewReport
 from api.models import AnalysisJob
@@ -110,7 +111,7 @@ class PRCreatorAgent:
             return None
 
     def _push_file(
-        self, repo: Repository.Repository,
+        self, repo: Repository,
         fixed_file: FixedFile,
         branch_name: str,
     ):

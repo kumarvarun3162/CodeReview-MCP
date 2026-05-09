@@ -1,1 +1,10 @@
-{}
+{
+  "kumarvarun3162/codereview-mcp": {
+    "repo_full_name": "kumarvarun3162/codereview-mcp",
+    "repo_url": "https://github.com/kumarvarun3162/codereview-mcp.git",
+    "notify_email": "kumarvarun3162@gmail.com",
+    "branch": "main",
+    "added_at": "2026-05-09T01:43:04.946576",
+    "enabled": true
+  }
+}
