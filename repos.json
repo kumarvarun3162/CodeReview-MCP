@@ -6,5 +6,13 @@
     "branch": "main",
     "added_at": "2026-05-09T01:43:04.946576",
     "enabled": true
+  },
+  "kumarvarun3162/code-review-testing-repo": {
+    "repo_full_name": "kumarvarun3162/code-review-testing-repo",
+    "repo_url": "https://github.com/kumarvarun3162/code-review-testing-repo.git",
+    "notify_email": "kumarvarun3162@gmail.com",
+    "branch": "main",
+    "added_at": "2026-05-11T16:38:47.990004",
+    "enabled": true
   }
 }
